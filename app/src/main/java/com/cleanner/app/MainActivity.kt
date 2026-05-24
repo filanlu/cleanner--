@@ -311,13 +311,30 @@ fun WipeScreen() {
                         OutlinedButton(
                             onClick = {
                                 try {
-                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                                    val parentDir = currentFilePath.substringBeforeLast("/")
-                                    intent.data = android.net.Uri.parse("file://$parentDir")
-                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    context.startActivity(intent)
+                                    val file = java.io.File(currentFilePath)
+                                    val parentDir = file.parentFile
+                                    if (parentDir != null && parentDir.exists()) {
+                                        // 使用 content URI 打开文件管理器
+                                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            parentDir
+                                        )
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                                        intent.setDataAndType(uri, "resource/folder")
+                                        intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    }
                                 } catch (e: Exception) {
                                     Log.e("MainActivity", "无法打开文件管理器: ${e.message}")
+                                    // 备用方案：打开存储设置
+                                    try {
+                                        val intent = android.content.Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS)
+                                        context.startActivity(intent)
+                                    } catch (e2: Exception) {
+                                        Log.e("MainActivity", "备用方案也失败: ${e2.message}")
+                                    }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
