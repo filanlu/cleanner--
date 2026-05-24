@@ -308,45 +308,28 @@ fun WipeScreen() {
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        // 文件大小信息
+                        val fileSize = java.io.File(currentFilePath).let { file ->
+                            if (file.exists()) "${file.length() / (1024 * 1024)} MB" else "写入中..."
+                        }
+                        Text(
+                            text = "大小: $fileSize",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // 复制路径按钮
                         OutlinedButton(
                             onClick = {
-                                try {
-                                    val file = java.io.File(currentFilePath)
-                                    if (file.exists()) {
-                                        // 使用 FileProvider 获取 content URI
-                                        val uri = androidx.core.content.FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.fileprovider",
-                                            file
-                                        )
-                                        // 尝试用文件管理器打开
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                                        intent.setDataAndType(uri, "*/*")
-                                        intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        context.startActivity(intent)
-                                    } else {
-                                        // 文件不存在，复制路径到剪贴板
-                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                        val clip = android.content.ClipData.newPlainText("文件路径", currentFilePath)
-                                        clipboard.setPrimaryClip(clip)
-                                        android.widget.Toast.makeText(context, "文件路径已复制到剪贴板", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e("MainActivity", "无法打开文件: ${e.message}")
-                                    // 备用方案：复制路径到剪贴板
-                                    try {
-                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                        val clip = android.content.ClipData.newPlainText("文件路径", currentFilePath)
-                                        clipboard.setPrimaryClip(clip)
-                                        android.widget.Toast.makeText(context, "文件路径已复制到剪贴板", android.widget.Toast.LENGTH_SHORT).show()
-                                    } catch (e2: Exception) {
-                                        Log.e("MainActivity", "复制路径失败: ${e2.message}")
-                                    }
-                                }
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("文件路径", currentFilePath)
+                                clipboard.setPrimaryClip(clip)
+                                android.widget.Toast.makeText(context, "已复制路径", android.widget.Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("查看文件位置")
+                            Text("复制文件路径")
                         }
                     }
 
