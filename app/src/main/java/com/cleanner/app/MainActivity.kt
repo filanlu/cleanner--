@@ -340,18 +340,24 @@ fun WipePage(onBack: () -> Unit) {
                                         Log.e("MainActivity", "擦除错误回调: ${e.message}", e)
                                         isWiping = false
                                         if (e is kotlinx.coroutines.CancellationException) {
-                                            status = "已中断"
+                                            status = "已中断（文件已保留）"
+                                            // 保留 currentFilePath 显示
                                         } else {
                                             status = "错误: ${e.message}"
+                                            currentFilePath = ""
                                         }
-                                        currentFilePath = ""
                                         wipeJob = null
                                     }
                                 })
                             } catch (e: Exception) {
                                 Log.e("MainActivity", "擦除异常: ${e.message}", e)
                                 isWiping = false
-                                status = if (e is kotlinx.coroutines.CancellationException) "已中断" else "错误: ${e.message}"
+                                if (e is kotlinx.coroutines.CancellationException) {
+                                    status = "已中断（文件已保留）"
+                                } else {
+                                    status = "错误: ${e.message}"
+                                    currentFilePath = ""
+                                }
                                 wipeJob = null
                             }
                         }
