@@ -428,6 +428,31 @@ fun WipePage(onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Medium
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    // 用文件管理器打开所在目录
+                                    val intent = Intent(Intent.ACTION_VIEW)
+                                    val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary:${currentFilePath.removePrefix("/storage/emulated/0/").substringBeforeLast("/")}")
+                                    intent.setDataAndType(fileUri, "resource/folder")
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // 备用方案：打开存储根目录
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW)
+                                        intent.data = Uri.parse("content://com.android.externalstorage.documents/document/primary:")
+                                        context.startActivity(intent)
+                                    } catch (e2: Exception) {
+                                        Log.e("MainActivity", "无法打开文件管理器: ${e2.message}")
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("查看文件位置")
+                        }
                     }
 
                     if (totalMB > 0) {
