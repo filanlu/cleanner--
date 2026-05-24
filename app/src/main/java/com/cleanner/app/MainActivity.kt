@@ -1,10 +1,14 @@
 package com.cleanner.app
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
-import android.os.StatFs
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -25,9 +29,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
+import java.io.File
+import java.io.FileOutputStream
 
 fun getStorageInfo(): Pair<Long, Long> {
-    val stat = StatFs(Environment.getExternalStorageDirectory().path)
+    val stat = android.os.StatFs(Environment.getExternalStorageDirectory().path)
     val availableBytes = stat.availableBlocksLong * stat.blockSizeLong
     val totalBytes = stat.blockCountLong * stat.blockSizeLong
     return Pair(availableBytes, totalBytes)
@@ -38,6 +44,46 @@ fun formatSize(bytes: Long): String {
     return "%.2f GB".format(gb)
 }
 
+fun createTestImage(context: android.content.Context): String? {
+    return try {
+        val bitmap = Bitmap.createBitmap(800, 400, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+
+        val paint = Paint().apply {
+            color = Color.BLACK
+            textSize = 48f
+            isAntiAlias = true
+        }
+
+        canvas.drawText("这是测试截图", 50f, 100f, paint)
+        canvas.drawText("密码: MySecret123!", 50f, 180f, paint)
+        canvas.drawText("银行卡: 6222 **** **** 1234", 50f, 260f, paint)
+        canvas.drawText("删除此图片后尝试恢复", 50f, 340f, paint)
+
+        val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        val file = File(picturesDir, "test_secret_${System.currentTimeMillis()}.png")
+
+        FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+
+        // 让媒体库扫描到这张图片
+        MediaStore.Images.Media.insertImage(
+            context.contentResolver,
+            file.absolutePath,
+            file.name,
+            "Test image for Cleanner demo"
+        )
+
+        bitmap.recycle()
+        file.absolutePath
+    } catch (e: Exception) {
+        Log.e("MainActivity", "创建测试图片失败: ${e.message}", e)
+        null
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private var onResumeCallback: (() -> Unit)? = null
 
@@ -46,7 +92,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    WipeScreen(onResume = { callback -> onResumeCallback = callback })
+                    MainApp(onResume = { callback -> onResumeCallback = callback })
                 }
             }
         }
@@ -59,7 +105,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun WipeScreen(onResume: ((() -> Unit) -> Unit)? = null) {
+fun MainApp(onResume: ((() -> Unit) -> Unit)? = null) {
     val context = LocalContext.current
     var currentPage by remember { mutableStateOf(0) }
     var hasPermission by remember { mutableStateOf(Environment.isExternalStorageManager()) }
@@ -73,6 +119,7 @@ fun WipeScreen(onResume: ((() -> Unit) -> Unit)? = null) {
     when (currentPage) {
         0 -> IntroPage(
             onNext = { currentPage = 1 },
+            onDemo = { currentPage = 2 },
             hasPermission = hasPermission,
             onRequestPermission = {
                 try {
@@ -85,12 +132,13 @@ fun WipeScreen(onResume: ((() -> Unit) -> Unit)? = null) {
                 }
             }
         )
-        1 -> WipePage()
+        1 -> WipePage(onBack = { currentPage = 0 })
+        2 -> DemoPage(onBack = { currentPage = 0 })
     }
 }
 
 @Composable
-fun IntroPage(onNext: () -> Unit, hasPermission: Boolean, onRequestPermission: () -> Unit) {
+fun IntroPage(onNext: () -> Unit, onDemo: () -> Unit, hasPermission: Boolean, onRequestPermission: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -133,7 +181,7 @@ fun IntroPage(onNext: () -> Unit, hasPermission: Boolean, onRequestPermission: (
                 Text(
                     text = "普通删除或格式化并不会真正擦除数据。\n\n" +
                            "操作系统只是标记这些空间为「可用」，实际数据仍然残留在存储芯片上。\n\n" +
-                           "使用专业恢复软件（如 DiskDigger、Recuva 等）可以轻松恢复这些「已删除」的文件，包括照片、视频、聊天记录等隐私信息。",
+                           "使用专业恢复软件（如 DiskDigger）可以轻松恢复这些「已删除」的文件，包括照片、视频、聊天记录等隐私信息。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
@@ -204,7 +252,17 @@ fun IntroPage(onNext: () -> Unit, hasPermission: Boolean, onRequestPermission: (
             enabled = hasPermission,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("开始使用")
+            Text("开始擦除")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedButton(
+            onClick = onDemo,
+            enabled = hasPermission,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("演示验证")
         }
 
         if (!hasPermission) {
@@ -220,7 +278,339 @@ fun IntroPage(onNext: () -> Unit, hasPermission: Boolean, onRequestPermission: (
 }
 
 @Composable
-fun WipePage() {
+fun DemoPage(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var currentStep by remember { mutableStateOf(0) }
+    var testImagePath by remember { mutableStateOf("") }
+    var isWiping by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0f) }
+    var wipeStatus by remember { mutableStateOf("") }
+    var currentFilePath by remember { mutableStateOf("") }
+    var writtenMB by remember { mutableStateOf(0L) }
+    var totalMB by remember { mutableStateOf(0L) }
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "演示验证",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "通过实际操作证明：普通删除不安全，擦除后无法恢复",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // 步骤 1：创建测试图片
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (currentStep >= 1) MaterialTheme.colorScheme.primaryContainer
+                               else MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "第 1 步：创建测试图片",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "创建一张包含「密码」和「银行卡号」的测试图片",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        val path = createTestImage(context)
+                        if (path != null) {
+                            testImagePath = path
+                            currentStep = 1
+                        }
+                    },
+                    enabled = currentStep == 0
+                ) {
+                    Text(if (currentStep >= 1) "已创建" else "创建测试图片")
+                }
+                if (testImagePath.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "保存位置: $testImagePath",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 步骤 2：用户删除图片
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (currentStep >= 2) MaterialTheme.colorScheme.primaryContainer
+                               else MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "第 2 步：手动删除图片",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "打开相册或文件管理器，找到并删除刚才创建的测试图片\n\n" +
+                           "删除后点击下方按钮继续",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = { currentStep = 2 },
+                    enabled = currentStep == 1
+                ) {
+                    Text(if (currentStep >= 2) "已删除" else "我已删除图片")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 步骤 3：用 DiskDigger 恢复
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (currentStep >= 3) MaterialTheme.colorScheme.primaryContainer
+                               else MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "第 3 步：尝试恢复（证明删除不安全）",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "安装 DiskDigger（应用商店搜索），扫描设备\n\n" +
+                           "你会发现刚才删除的图片可以被恢复！\n\n" +
+                           "这证明：普通删除并不能保护你的隐私数据",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row {
+                    Button(
+                        onClick = {
+                            // 打开应用商店搜索 DiskDigger
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                intent.data = Uri.parse("market://details?id=com.defianttech.diskdigger")
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                intent.data = Uri.parse("https://play.google.com/store/apps/details?id=com.defianttech.diskdigger")
+                                context.startActivity(intent)
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("下载 DiskDigger")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { currentStep = 3 },
+                        enabled = currentStep == 2,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (currentStep >= 3) "已确认" else "我已看到恢复结果")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 步骤 4：用 Cleanner 擦除
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (currentStep >= 4) MaterialTheme.colorScheme.primaryContainer
+                               else MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "第 4 步：使用 Cleanner 擦除",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "擦除 1GB 可用空间，覆盖已删除图片的数据",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (isWiping) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = wipeStatus,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (currentFilePath.isNotEmpty()) {
+                        Text(
+                            text = "写入: $currentFilePath",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (totalMB > 0) {
+                        Text(
+                            text = "${writtenMB} MB / ${totalMB} MB",
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            isWiping = true
+                            wipeStatus = "擦除中..."
+                            scope.launch {
+                                try {
+                                    DataWiper.wipe(1, object : DataWiper.ProgressCallback {
+                                        override fun onProgress(p: Float, filePath: String, written: Long, total: Long) {
+                                            progress = p
+                                            currentFilePath = filePath
+                                            writtenMB = written
+                                            totalMB = total
+                                            wipeStatus = "擦除中..."
+                                        }
+                                        override fun onComplete() {
+                                            isWiping = false
+                                            wipeStatus = "擦除完成！"
+                                            progress = 1f
+                                            currentStep = 4
+                                        }
+                                        override fun onError(e: Exception) {
+                                            isWiping = false
+                                            wipeStatus = "错误: ${e.message}"
+                                        }
+                                    })
+                                } catch (e: Exception) {
+                                    isWiping = false
+                                    wipeStatus = "错误: ${e.message}"
+                                }
+                            }
+                        },
+                        enabled = currentStep == 3
+                    ) {
+                        Text("开始擦除 1GB")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 步骤 5：再次恢复验证
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (currentStep >= 5) MaterialTheme.colorScheme.primaryContainer
+                               else MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "第 5 步：再次尝试恢复（证明擦除有效）",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "再次使用 DiskDigger 扫描\n\n" +
+                           "这次你会发现：刚才的图片无法恢复了！\n\n" +
+                           "这证明：Cleanner 擦除后，数据已彻底消失",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = { currentStep = 5 },
+                    enabled = currentStep == 4
+                ) {
+                    Text(if (currentStep >= 5) "验证完成" else "我已确认无法恢复")
+                }
+            }
+        }
+
+        if (currentStep >= 5) {
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "验证完成！",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Cleanner 已成功擦除存储空间\n已删除的文件无法被恢复",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("返回首页")
+        }
+    }
+}
+
+@Composable
+fun WipePage(onBack: () -> Unit) {
     val context = LocalContext.current
     var sizeGB by remember { mutableStateOf("") }
     var isWiping by remember { mutableStateOf(false) }
@@ -416,14 +806,10 @@ fun WipePage() {
         Spacer(modifier = Modifier.height(16.dp))
 
         OutlinedButton(
-            onClick = {
-                val intent = Intent(Intent.ACTION_VIEW)
-                intent.data = Uri.parse("content://com.android.externalstorage.documents/document/primary:")
-                context.startActivity(intent)
-            },
+            onClick = onBack,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("查看存储空间")
+            Text("返回首页")
         }
     }
 }
