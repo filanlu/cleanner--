@@ -1,6 +1,5 @@
 package com.cleanner.app
 
-import android.os.Environment
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -20,11 +19,6 @@ object DataWiper {
         fun onProgress(progress: Float, filePath: String, writtenMB: Long, totalMB: Long)
         fun onComplete()
         fun onError(e: Exception)
-    }
-
-    suspend fun wipe(sizeGB: Long, callback: ProgressCallback) {
-        val targetDir = Environment.getExternalStorageDirectory()
-        wipe(targetDir, sizeGB, callback)
     }
 
     suspend fun wipe(targetDir: File, sizeGB: Long, callback: ProgressCallback) {
@@ -68,23 +62,18 @@ object DataWiper {
                 outputStream = null
             }
 
-            // 正常完成：删除临时文件
-            Log.d(TAG, "删除临时文件: ${file.absolutePath}")
-            file.delete()
-            Log.d(TAG, "擦除完成")
+            // 完成：保留文件作为缓存
+            Log.d(TAG, "擦除完成，文件保留在缓存: ${file.absolutePath}")
             callback.onComplete()
 
         } catch (e: Exception) {
             Log.e(TAG, "擦除出错: ${e.message}", e)
-            // 关闭流
             try { outputStream?.flush() } catch (_: Exception) {}
             try { outputStream?.close() } catch (_: Exception) {}
 
             if (e is CancellationException) {
-                // 中断：保留已写入的文件
                 Log.d(TAG, "擦除已中断，保留文件: ${file.absolutePath}")
             } else {
-                // 其他错误：删除文件
                 file.delete()
             }
             callback.onError(e)

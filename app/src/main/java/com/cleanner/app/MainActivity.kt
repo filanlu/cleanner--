@@ -1,11 +1,8 @@
 package com.cleanner.app
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.os.StatFs
-import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,188 +36,20 @@ fun formatSize(bytes: Long): String {
 }
 
 class MainActivity : ComponentActivity() {
-    private var onResumeCallback: (() -> Unit)? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainApp(onResume = { callback -> onResumeCallback = callback })
+                    WipeScreen()
                 }
             }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        onResumeCallback?.invoke()
-    }
-}
-
-@Composable
-fun MainApp(onResume: ((() -> Unit) -> Unit)? = null) {
-    val context = LocalContext.current
-    var currentPage by remember { mutableStateOf(0) }
-    var hasPermission by remember { mutableStateOf(Environment.isExternalStorageManager()) }
-
-    LaunchedEffect(Unit) {
-        onResume?.invoke {
-            hasPermission = Environment.isExternalStorageManager()
-        }
-    }
-
-    when (currentPage) {
-        0 -> IntroPage(
-            onNext = { currentPage = 1 },
-            hasPermission = hasPermission,
-            onRequestPermission = {
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    intent.data = Uri.parse("package:${context.packageName}")
-                    context.startActivity(intent)
-                } catch (e: Exception) {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    context.startActivity(intent)
-                }
-            }
-        )
-        1 -> WipePage(onBack = { currentPage = 0 })
-    }
-}
-
-@Composable
-fun IntroPage(onNext: () -> Unit, hasPermission: Boolean, onRequestPermission: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "数据防恢复擦除工具",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "为什么需要这个工具？",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "普通删除或格式化并不会真正擦除数据。\n\n" +
-                           "操作系统只是标记这些空间为「可用」，实际数据仍然残留在存储芯片上。\n\n" +
-                           "使用专业恢复软件可以轻松恢复这些「已删除」的文件，包括照片、视频、聊天记录等隐私信息。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer
-            )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "工作原理",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "本工具通过在存储空间中创建大体积临时文件，用随机数据填满所有可用空间，彻底覆盖已删除文件的残留数据。\n\n" +
-                           "完成后自动删除临时文件，不影响正常使用。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        if (!hasPermission) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "需要授权存储权限",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "请先授予「所有文件访问权限」",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(onClick = onRequestPermission) {
-                        Text("去授权")
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        Button(
-            onClick = onNext,
-            enabled = hasPermission,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("开始使用")
-        }
-
-        if (!hasPermission) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "请先完成授权",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
 
 @Composable
-fun WipePage(onBack: () -> Unit) {
+fun WipeScreen() {
     val context = LocalContext.current
     var sizeGB by remember { mutableStateOf("") }
     var isWiping by remember { mutableStateOf(false) }
@@ -244,10 +73,51 @@ fun WipePage(onBack: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "数据擦除",
-            style = MaterialTheme.typography.headlineMedium,
+            text = "Cleanner",
+            style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "数据防恢复擦除工具",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "普通删除不安全",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "删除文件后，数据仍残留在存储中，可被恢复工具还原。本工具用随机数据填满可用空间，彻底覆盖残留数据。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -310,17 +180,21 @@ fun WipePage(onBack: () -> Unit) {
                     val size = sizeGB.toLongOrNull()
                     Log.d("MainActivity", "点击开始擦除: size=$size GB")
                     if (size != null && size > 0) {
+                        val cacheDir = context.externalCacheDir
+                        if (cacheDir == null) {
+                            status = "错误: 无法访问缓存目录"
+                            return@Button
+                        }
                         isWiping = true
                         status = "准备中..."
                         currentFilePath = ""
                         writtenMB = 0
                         totalMB = 0
                         progress = 0f
-                        Log.d("MainActivity", "启动擦除协程...")
+                        Log.d("MainActivity", "启动擦除协程，目标目录: $cacheDir")
                         wipeJob = scope.launch {
                             try {
-                                Log.d("MainActivity", "调用 DataWiper.wipe...")
-                                DataWiper.wipe(size, object : DataWiper.ProgressCallback {
+                                DataWiper.wipe(cacheDir, size, object : DataWiper.ProgressCallback {
                                     override fun onProgress(p: Float, filePath: String, written: Long, total: Long) {
                                         progress = p
                                         currentFilePath = filePath
@@ -331,17 +205,15 @@ fun WipePage(onBack: () -> Unit) {
                                     override fun onComplete() {
                                         Log.d("MainActivity", "擦除完成回调")
                                         isWiping = false
-                                        status = "擦除完成！"
+                                        status = "擦除完成！（文件保留在缓存中）"
                                         progress = 1f
-                                        currentFilePath = ""
                                         wipeJob = null
                                     }
                                     override fun onError(e: Exception) {
                                         Log.e("MainActivity", "擦除错误回调: ${e.message}", e)
                                         isWiping = false
-                                        if (e is kotlinx.coroutines.CancellationException) {
+                                        if (e is CancellationException) {
                                             status = "已中断（文件已保留）"
-                                            // 保留 currentFilePath 显示
                                         } else {
                                             status = "错误: ${e.message}"
                                             currentFilePath = ""
@@ -352,7 +224,7 @@ fun WipePage(onBack: () -> Unit) {
                             } catch (e: Exception) {
                                 Log.e("MainActivity", "擦除异常: ${e.message}", e)
                                 isWiping = false
-                                if (e is kotlinx.coroutines.CancellationException) {
+                                if (e is CancellationException) {
                                     status = "已中断（文件已保留）"
                                 } else {
                                     status = "错误: ${e.message}"
@@ -400,7 +272,8 @@ fun WipePage(onBack: () -> Unit) {
                         text = status,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (status == "擦除完成！") MaterialTheme.colorScheme.primary
+                        color = if (status.contains("完成")) MaterialTheme.colorScheme.primary
+                               else if (status.contains("中断")) MaterialTheme.colorScheme.tertiary
                                else MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
@@ -438,21 +311,13 @@ fun WipePage(onBack: () -> Unit) {
                         OutlinedButton(
                             onClick = {
                                 try {
-                                    // 用文件管理器打开所在目录
-                                    val intent = Intent(Intent.ACTION_VIEW)
-                                    val fileUri = Uri.parse("content://com.android.externalstorage.documents/document/primary:${currentFilePath.removePrefix("/storage/emulated/0/").substringBeforeLast("/")}")
-                                    intent.setDataAndType(fileUri, "resource/folder")
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                                    val parentDir = currentFilePath.substringBeforeLast("/")
+                                    intent.data = android.net.Uri.parse("file://$parentDir")
+                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                                     context.startActivity(intent)
                                 } catch (e: Exception) {
-                                    // 备用方案：打开存储根目录
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW)
-                                        intent.data = Uri.parse("content://com.android.externalstorage.documents/document/primary:")
-                                        context.startActivity(intent)
-                                    } catch (e2: Exception) {
-                                        Log.e("MainActivity", "无法打开文件管理器: ${e2.message}")
-                                    }
+                                    Log.e("MainActivity", "无法打开文件管理器: ${e.message}")
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -476,11 +341,12 @@ fun WipePage(onBack: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        OutlinedButton(
-            onClick = onBack,
+        Text(
+            text = "文件保留在应用缓存中，可在系统设置里清除",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("返回首页")
-        }
+        )
     }
 }
