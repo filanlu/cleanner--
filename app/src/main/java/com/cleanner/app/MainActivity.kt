@@ -230,6 +230,7 @@ fun WipePage(onBack: () -> Unit) {
     var writtenMB by remember { mutableStateOf(0L) }
     var totalMB by remember { mutableStateOf(0L) }
     val scope = rememberCoroutineScope()
+    var wipeJob by remember { mutableStateOf<Job?>(null) }
 
     val storageInfo = remember { getStorageInfo() }
     val availableGB = storageInfo.first / (1024.0 * 1024.0 * 1024.0)
@@ -300,54 +301,83 @@ fun WipePage(onBack: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(
-            onClick = {
-                val size = sizeGB.toLongOrNull()
-                Log.d("MainActivity", "点击开始擦除: size=$size GB")
-                if (size != null && size > 0) {
-                    isWiping = true
-                    status = "准备中..."
-                    currentFilePath = ""
-                    writtenMB = 0
-                    totalMB = 0
-                    Log.d("MainActivity", "启动擦除协程...")
-                    scope.launch {
-                        try {
-                            Log.d("MainActivity", "调用 DataWiper.wipe...")
-                            DataWiper.wipe(size, object : DataWiper.ProgressCallback {
-                                override fun onProgress(p: Float, filePath: String, written: Long, total: Long) {
-                                    progress = p
-                                    currentFilePath = filePath
-                                    writtenMB = written
-                                    totalMB = total
-                                    status = "擦除中..."
-                                }
-                                override fun onComplete() {
-                                    Log.d("MainActivity", "擦除完成回调")
-                                    isWiping = false
-                                    status = "擦除完成！"
-                                    progress = 1f
-                                    currentFilePath = ""
-                                }
-                                override fun onError(e: Exception) {
-                                    Log.e("MainActivity", "擦除错误回调: ${e.message}", e)
-                                    isWiping = false
-                                    status = "错误: ${e.message}"
-                                    currentFilePath = ""
-                                }
-                            })
-                        } catch (e: Exception) {
-                            Log.e("MainActivity", "擦除异常: ${e.message}", e)
-                            isWiping = false
-                            status = "错误: ${e.message}"
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = {
+                    val size = sizeGB.toLongOrNull()
+                    Log.d("MainActivity", "点击开始擦除: size=$size GB")
+                    if (size != null && size > 0) {
+                        isWiping = true
+                        status = "准备中..."
+                        currentFilePath = ""
+                        writtenMB = 0
+                        totalMB = 0
+                        progress = 0f
+                        Log.d("MainActivity", "启动擦除协程...")
+                        wipeJob = scope.launch {
+                            try {
+                                Log.d("MainActivity", "调用 DataWiper.wipe...")
+                                DataWiper.wipe(size, object : DataWiper.ProgressCallback {
+                                    override fun onProgress(p: Float, filePath: String, written: Long, total: Long) {
+                                        progress = p
+                                        currentFilePath = filePath
+                                        writtenMB = written
+                                        totalMB = total
+                                        status = "擦除中..."
+                                    }
+                                    override fun onComplete() {
+                                        Log.d("MainActivity", "擦除完成回调")
+                                        isWiping = false
+                                        status = "擦除完成！"
+                                        progress = 1f
+                                        currentFilePath = ""
+                                        wipeJob = null
+                                    }
+                                    override fun onError(e: Exception) {
+                                        Log.e("MainActivity", "擦除错误回调: ${e.message}", e)
+                                        isWiping = false
+                                        if (e is kotlinx.coroutines.CancellationException) {
+                                            status = "已中断"
+                                        } else {
+                                            status = "错误: ${e.message}"
+                                        }
+                                        currentFilePath = ""
+                                        wipeJob = null
+                                    }
+                                })
+                            } catch (e: Exception) {
+                                Log.e("MainActivity", "擦除异常: ${e.message}", e)
+                                isWiping = false
+                                status = if (e is kotlinx.coroutines.CancellationException) "已中断" else "错误: ${e.message}"
+                                wipeJob = null
+                            }
                         }
                     }
+                },
+                enabled = !isWiping && sizeGB.isNotEmpty(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("开始擦除")
+            }
+
+            if (isWiping) {
+                Button(
+                    onClick = {
+                        Log.d("MainActivity", "用户中断擦除")
+                        wipeJob?.cancel()
+                        status = "正在中断..."
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("中断")
                 }
-            },
-            enabled = !isWiping && sizeGB.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (isWiping) "擦除中..." else "开始擦除")
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
