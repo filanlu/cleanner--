@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/code/data-wiper/**)",
+      "Bash(./gradlew.bat assembleDebug)",
+      "Bash(adb devices:*)",
+      "Bash(where adb:*)"
+    ]
+  }
+}
